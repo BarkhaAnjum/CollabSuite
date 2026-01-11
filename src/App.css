@@ -11,9 +11,11 @@
   will-change: filter;
   transition: filter 300ms;
 }
+
 .logo:hover {
   filter: drop-shadow(0 0 2em #646cffaa);
 }
+
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
 }
@@ -39,4 +41,33 @@
 
 .read-the-docs {
   color: #888;
+}
+
+/* ⭐ FLOATING BOT POSITION + ANIMATION CALL */
+.floating-mini-bot {
+  position: absolute;
+  top: 60px;
+  right: 20px;
+  z-index: 9999;
+  pointer-events: none;
+  animation: floatingBot 6s ease-in-out infinite;
+}
+
+/* ⭐ BOT FLOATING ANIMATION (THIS WAS MISSING) */
+@keyframes floatingBot {
+  0% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(10px, -10px);
+  }
+  50% {
+    transform: translate(0, -15px);
+  }
+  75% {
+    transform: translate(-10px, -5px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
 }

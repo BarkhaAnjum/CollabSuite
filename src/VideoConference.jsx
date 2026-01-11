@@ -1,252 +1,225 @@
-import React, { useRef, useState } from 'react';
+import React, { useState, useRef } from "react";
+import { Video, Users, Copy, Check, PhoneOff, Mic, MicOff, Camera, CameraOff } from "lucide-react";
 
-const VideoConference = ({ onlineUsers }) => {
+const VideoConference = () => {
+  const [meetingId, setMeetingId] = useState("");
+  const [generatedId, setGeneratedId] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [inMeeting, setInMeeting] = useState(false);
+
+  const [micMuted, setMicMuted] = useState(false);
+  const [cameraOff, setCameraOff] = useState(false);
+
   const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const peerConnectionRef = useRef(null);
-  const [localStream, setLocalStream] = useState(null);
-  const [connected, setConnected] = useState(false);
 
-  // Start the camera + mic
-  const startCamera = async () => {
+  // Generate unique meeting ID
+  const createMeeting = () => {
+    const newId = Math.random().toString(36).substring(2, 10).toUpperCase();
+    setGeneratedId(newId);
+    setMeetingId(newId);
+  };
+
+  // Copy join link
+  const copyLink = () => {
+    const link = `${window.location.origin}?meeting=${generatedId}`;
+    navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  // Start the meeting (host or guest)
+  const joinMeeting = async () => {
+    if (!meetingId.trim()) return alert("Please enter Meeting ID");
+
+    setInMeeting(true);
+
     try {
+      // Get user webcam + mic
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
       });
-      setLocalStream(stream);
+
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       }
-      alert('Camera & mic enabled. Now choose Caller or Receiver.');
     } catch (err) {
-      console.error(err);
-      alert('Could not access camera/mic. Check permissions.');
+      alert("Camera/Mic access denied.");
     }
   };
 
-  const createPeerConnection = () => {
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' }, // public STUN
-      ],
-    });
-
-    // When we get remote stream
-    pc.ontrack = (event) => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
-    };
-
-    // When ICE gathering is done, localDescription will contain all candidates
-    pc.onicecandidate = (event) => {
-      if (!event.candidate) {
-        const sdp = JSON.stringify(pc.localDescription);
-        // Show SDP to user to copy
-        window.prompt(
-          'Send this SDP to the other person (copy all):',
-          sdp
-        );
-      }
-    };
-
-    // Add our local tracks
-    if (localStream) {
-      localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, localStream);
-      });
+  // Leave meeting
+  const leaveMeeting = () => {
+    if (localVideoRef.current?.srcObject) {
+      localVideoRef.current.srcObject.getTracks().forEach((t) => t.stop());
     }
-
-    peerConnectionRef.current = pc;
-    return pc;
+    setInMeeting(false);
+    setMicMuted(false);
+    setCameraOff(false);
   };
 
-  // Person A (Caller)
-  const handleCreateOffer = async () => {
-    if (!localStream) {
-      alert('Start camera first.');
-      return;
-    }
+  // Toggle Mic
+  const toggleMic = () => {
+    setMicMuted(!micMuted);
 
-    const pc = createPeerConnection();
-
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      alert('Offer created. Copy the SDP from the next prompt and send it to the other person.');
-    } catch (err) {
-      console.error(err);
-      alert('Failed to create offer.');
+    const stream = localVideoRef.current?.srcObject;
+    if (stream) {
+      stream.getAudioTracks().forEach((track) => (track.enabled = micMuted));
     }
   };
 
-  // Person B (Receiver)
-  const handleAcceptOfferCreateAnswer = async () => {
-    if (!localStream) {
-      alert('Start camera first.');
-      return;
+  // Toggle Camera
+  const toggleCamera = () => {
+    setCameraOff(!cameraOff);
+
+    const stream = localVideoRef.current?.srcObject;
+    if (stream) {
+      stream.getVideoTracks().forEach((track) => (track.enabled = cameraOff));
     }
-
-    const offerString = window.prompt('Paste the SDP offer you received:');
-    if (!offerString) return;
-
-    let offer;
-    try {
-      offer = JSON.parse(offerString);
-    } catch (err) {
-      alert('Invalid offer JSON.');
-      return;
-    }
-
-    const pc = createPeerConnection();
-
-    try {
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      alert('Answer created. Copy the SDP from the next prompt and send it back to the caller.');
-
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'connected') {
-          setConnected(true);
-        }
-      };
-    } catch (err) {
-      console.error(err);
-      alert('Failed to handle offer / create answer.');
-    }
-  };
-
-  // Person A sets remote answer
-  const handleSetRemoteAnswer = async () => {
-    const answerString = window.prompt('Paste the SDP answer you received:');
-    if (!answerString) return;
-
-    let answer;
-    try {
-      answer = JSON.parse(answerString);
-    } catch (err) {
-      alert('Invalid answer JSON.');
-      return;
-    }
-
-    const pc = peerConnectionRef.current;
-    if (!pc) {
-      alert('No peer connection. Create an offer first.');
-      return;
-    }
-
-    try {
-      await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'connected') {
-          setConnected(true);
-        }
-      };
-    } catch (err) {
-      console.error(err);
-      alert('Failed to set remote answer.');
-    }
-  };
-
-  const handleEndCall = () => {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
-    if (localStream) {
-      localStream.getTracks().forEach((t) => t.stop());
-    }
-    setLocalStream(null);
-    setConnected(false);
-    if (localVideoRef.current) localVideoRef.current.srcObject = null;
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-6 space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold mb-2">WebRTC Video Calls</h2>
-        <p className="text-sm text-gray-600 mb-4">
-          Open this page in two browsers/devices. One is <b>Caller</b>, the other is <b>Receiver</b>.
-          Use the SDPs shown in the prompts to connect.
-        </p>
+    <div className="p-6 space-y-6 animate-fadeIn">
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <p className="text-sm font-semibold mb-1">You</p>
-            <video
-              ref={localVideoRef}
-              autoPlay
-              muted
-              className="w-full aspect-video bg-black rounded-lg"
-            />
+      {/* TITLE */}
+      <h2 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+        <Video className="w-7 h-7" /> Video Conference
+      </h2>
+
+      {/* If in meeting -> show meeting UI */}
+      {inMeeting ? (
+        <div className="space-y-6">
+
+          {/* VIDEOS */}
+          <div className="grid md:grid-cols-2 gap-4">
+
+            {/* SELF VIEW */}
+            <div className="bg-gray-200 dark:bg-gray-700 rounded-xl overflow-hidden relative">
+              <video
+                ref={localVideoRef}
+                autoPlay
+                muted={micMuted}
+                className={`w-full ${cameraOff ? "hidden" : "block"}`}
+              />
+
+              {/* CAMERA OFF PLACEHOLDER */}
+              {cameraOff && (
+                <div className="w-full h-60 flex flex-col items-center justify-center bg-gray-900 text-white">
+                  <div className="w-16 h-16 bg-gray-600 rounded-full flex items-center justify-center text-3xl font-bold">
+                    U
+                  </div>
+                  <p className="mt-2 text-gray-300">Camera Off</p>
+                </div>
+              )}
+
+              <p className="text-center p-2 text-sm text-gray-700 dark:text-gray-300">
+                You
+              </p>
+            </div>
+
+            {/* OTHER USER */}
+            <div className="bg-gray-300 dark:bg-gray-600 rounded-xl overflow-hidden flex items-center justify-center">
+              <p className="text-gray-600 dark:text-gray-300">
+                Waiting for participant…
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold mb-1">Remote</p>
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              className="w-full aspect-video bg-black rounded-lg"
-            />
+
+          {/* CONTROLS */}
+          <div className="flex justify-center gap-4 mt-4">
+
+            {/* MIC TOGGLE */}
+            <button
+              onClick={toggleMic}
+              className={`px-5 py-3 rounded-full shadow-lg transition flex items-center gap-2 ${
+                micMuted
+                  ? "bg-red-600 text-white"
+                  : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white"
+              }`}
+            >
+              {micMuted ? <MicOff /> : <Mic />}
+              {micMuted ? "Mic Off" : "Mic On"}
+            </button>
+
+            {/* CAMERA TOGGLE */}
+            <button
+              onClick={toggleCamera}
+              className={`px-5 py-3 rounded-full shadow-lg transition flex items-center gap-2 ${
+                cameraOff
+                  ? "bg-red-600 text-white"
+                  : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white"
+              }`}
+            >
+              {cameraOff ? <CameraOff /> : <Camera />}
+              {cameraOff ? "Camera Off" : "Camera On"}
+            </button>
+
+            {/* LEAVE */}
+            <button
+              onClick={leaveMeeting}
+              className="px-6 py-3 bg-red-600 text-white rounded-full flex items-center gap-2 hover:bg-red-700 hover:scale-105 active:scale-95 transition"
+            >
+              <PhoneOff /> Leave
+            </button>
           </div>
         </div>
+      ) : (
 
-        <div className="flex flex-wrap gap-3 mb-2">
-          <button
-            onClick={startCamera}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
-          >
-            1️⃣ Start Camera
-          </button>
+        /* JOIN + CREATE SCREEN */
+        <div className="space-y-6">
 
-          <button
-            onClick={handleCreateOffer}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
-          >
-            2️⃣ Caller: Create Offer
-          </button>
+          {/* CREATE MEETING */}
+          <div className="bg-white dark:bg-gray-900 p-5 rounded-xl shadow-md border dark:border-gray-700">
+            <h3 className="text-lg font-semibold mb-3 dark:text-white">Create New Meeting</h3>
+            
+            <button
+              onClick={createMeeting}
+              className="px-5 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 hover:scale-105 transition flex items-center gap-2"
+            >
+              <Users /> Create Meeting
+            </button>
 
-          <button
-            onClick={handleAcceptOfferCreateAnswer}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-          >
-            2️⃣ Receiver: Paste Offer & Create Answer
-          </button>
+            {generatedId && (
+              <div className="mt-4 space-y-2">
+                <p className="text-gray-700 dark:text-gray-300 text-sm">Share this Meeting ID:</p>
 
-          <button
-            onClick={handleSetRemoteAnswer}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition"
-          >
-            3️⃣ Caller: Paste Answer
-          </button>
+                <div className="flex items-center gap-2">
+                  <div className="px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-gray-900 dark:text-white font-mono">
+                    {generatedId}
+                  </div>
 
-          <button
-            onClick={handleEndCall}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
-          >
-            End Call
-          </button>
+                  <button
+                    onClick={copyLink}
+                    className="p-2 bg-gray-300 dark:bg-gray-600 rounded-lg hover:scale-110 transition"
+                  >
+                    {copied ? <Check className="text-green-500" /> : <Copy />}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* JOIN MEETING */}
+          <div className="bg-white dark:bg-gray-900 p-5 rounded-xl shadow-md border dark:border-gray-700">
+            <h3 className="text-lg font-semibold mb-3 dark:text-white">Join a Meeting</h3>
+
+            <input
+              type="text"
+              value={meetingId}
+              onChange={(e) => setMeetingId(e.target.value)}
+              placeholder="Enter Meeting ID"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg mb-4"
+            />
+
+            <button
+              onClick={joinMeeting}
+              className="px-5 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 hover:scale-105 transition flex items-center gap-2"
+            >
+              Join Meeting
+            </button>
+          </div>
         </div>
-
-        {connected && (
-          <p className="text-sm text-green-600 font-semibold">
-            ✅ Peers connected! You should see & hear each other.
-          </p>
-        )}
-      </div>
-
-      {/* Just to keep your original idea of "Free Resources" conceptually */}
-      <div className="border-t pt-4">
-        <h3 className="text-lg font-semibold mb-2">Free Resources (WebRTC Stack)</h3>
-        <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-          <li>WebRTC Video Calls</li>
-          <li>WebRTC for Beginners (Fireship)</li>
-          <li>PeerJS Docs</li>
-          <li>simple-peer GitHub</li>
-        </ul>
-      </div>
+      )}
     </div>
   );
 };
